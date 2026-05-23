@@ -24,6 +24,7 @@ db.exec(`
     avatar TEXT,
     role TEXT DEFAULT 'user',
     balance REAL DEFAULT 0,
+    lastSeen TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT DEFAULT (datetime('now'))
   );
@@ -59,7 +60,9 @@ db.exec(`
     receiverId INTEGER NOT NULL REFERENCES users(id),
     productId INTEGER REFERENCES products(id),
     message TEXT NOT NULL,
+    image TEXT,
     read INTEGER DEFAULT 0,
+    deleted INTEGER DEFAULT 0,
     createdAt TEXT DEFAULT (datetime('now'))
   );
 
@@ -110,6 +113,7 @@ db.exec(`
     UNIQUE(productId, userId)
   );
 
+  
   CREATE TABLE IF NOT EXISTS wishlist (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId INTEGER NOT NULL REFERENCES users(id),
@@ -118,5 +122,9 @@ db.exec(`
     UNIQUE(userId, productId)
   );
 `);
+
+try { db.exec(`ALTER TABLE users ADD COLUMN lastSeen TEXT`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN image TEXT`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0`); } catch {}
 
 module.exports = db;

@@ -26,7 +26,7 @@
         </span>
         <span id="userMenu" style="display:none">
           <a href="/profile" onclick="return navigate('/profile')">Личный кабинет</a>
-          <a href="/messages" onclick="return navigate('/messages')">Сообщения</a>
+          <a href="/messages" onclick="return navigate('/messages')">Сообщения<span id="unreadBadge" style="display:none;background:#dc2626;color:#fff;font-size:11px;padding:1px 6px;border-radius:10px;margin-left:4px">0</span></a>
           <a href="/balance" onclick="return navigate('/balance')">💰 <span id="headerBalance">0.00</span>$</a>
           <a href="/support" onclick="return navigate('/support')">Поддержка</a>
           <a href="#" onclick="return logout()">Выйти</a>
@@ -38,6 +38,7 @@
   <main class="container" id="mainContent">
     <div class="loading">Загрузка...</div>
   </main>
+  <script src="/socket.io/socket.io.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/app.js"></script>
   <script>

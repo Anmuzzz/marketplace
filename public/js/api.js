@@ -8,10 +8,7 @@ const API = {
       opts.body = JSON.stringify(data);
     }
     const res = await fetch(url, opts);
-    if (res.redirected && res.url) {
-      window.location.href = res.url;
-      return;
-    }
+    if (res.redirected && res.url) { window.location.href = res.url; return; }
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Ошибка запроса');
     return json;
@@ -23,6 +20,7 @@ const API = {
 };
 
 let currentUser = null;
+let socket = null;
 
 async function checkAuth() {
   try {
@@ -31,8 +29,46 @@ async function checkAuth() {
     return data.user;
   } catch {
     currentUser = null;
+    if (socket) { socket.disconnect(); socket = null; }
     return null;
   }
+}
+
+function initSocket() {
+  if (socket && socket.connected) return;
+  if (!currentUser) return;
+  socket = io({ query: { userId: currentUser.id } });
+  socket.on('connect', () => {});
+  socket.on('new_message', (msg) => {
+    if (window.onNewMessage) window.onNewMessage(msg);
+    updateUnreadCount();
+  });
+  socket.on('message_sent', (msg) => {
+    if (window.onMessageSent) window.onMessageSent(msg);
+  });
+  socket.on('typing', ({ userId }) => {
+    if (window.onTyping) window.onTyping(userId);
+  });
+  socket.on('stop_typing', ({ userId }) => {
+    if (window.onStopTyping) window.onStopTyping(userId);
+  });
+  socket.on('read_receipt', (data) => {
+    if (window.onReadReceipt) window.onReadReceipt(data);
+  });
+  socket.on('online_users', (users) => {
+    if (window.onOnlineUsers) window.onOnlineUsers(users);
+  });
+}
+
+async function updateUnreadCount() {
+  try {
+    const data = await API.get('/api/messages/unread-count');
+    const badge = document.getElementById('unreadBadge');
+    if (badge) {
+      if (data.unread > 0) { badge.textContent = data.unread > 99 ? '99+' : data.unread; badge.style.display = 'inline'; }
+      else badge.style.display = 'none';
+    }
+  } catch {}
 }
 
 function updateHeader(user) {
@@ -42,15 +78,18 @@ function updateHeader(user) {
     authLinks.style.display = 'none';
     userMenu.style.display = 'inline';
     document.getElementById('headerBalance').textContent = (user.balance || 0).toFixed(2);
+    initSocket();
   } else {
     authLinks.style.display = 'inline';
     userMenu.style.display = 'none';
+    if (socket) { socket.disconnect(); socket = null; }
   }
 }
 
 async function logout() {
   await API.get('/api/auth/logout');
   currentUser = null;
+  if (socket) { socket.disconnect(); socket = null; }
   updateHeader(null);
   navigate('/');
   return false;

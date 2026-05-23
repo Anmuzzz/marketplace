@@ -463,81 +463,289 @@ async function adminDeposit(userId) {
 }
 
 // ===================== MESSAGES =====================
+let messagesActiveChatUserId = null;
+let messagesActiveProductId = null;
+let messagesTypingTimeout = null;
+let messagesLastId = 0;
+
+const EMOJIS = ['😀','😂','😍','🥰','😎','🤔','👍','❤️','🔥','🎉','💯','😢','😡','👋','🎁','💰','🚀','💪','🙏','⭐','✅','❌','💡','📦','🛒','🔒','🔓','📱','💻','⌚','🎧'];
+
+window.onNewMessage = function(msg) {
+  if (messagesActiveChatUserId && (msg.senderId === messagesActiveChatUserId || msg.senderId === currentUser.id)) {
+    appendMessage(msg);
+  }
+  updateUnreadCount();
+  refreshConversations();
+};
+
+window.onMessageSent = function(msg) {
+  if (messagesActiveChatUserId && (msg.senderId === messagesActiveChatUserId || msg.senderId === currentUser.id)) {
+    appendMessage(msg);
+  }
+};
+
+window.onTyping = function(userId) {
+  if (messagesActiveChatUserId == userId) {
+    const el = document.getElementById('typingIndicator');
+    if (el) el.style.display = 'block';
+  }
+};
+
+window.onStopTyping = function(userId) {
+  if (messagesActiveChatUserId == userId) {
+    const el = document.getElementById('typingIndicator');
+    if (el) el.style.display = 'none';
+  }
+};
+
+window.onOnlineUsers = function(users) {
+  document.querySelectorAll('.chat-item').forEach(item => {
+    const id = item.dataset.userId;
+    const dot = item.querySelector('.online-dot');
+    if (dot) dot.style.display = users.includes(parseInt(id)) ? 'inline-block' : 'none';
+  });
+};
+
+function appendMessage(m) {
+  const container = document.getElementById('chatMessages');
+  if (!container) return;
+  const isOut = m.senderId === currentUser.id;
+  const html = `<div class="msg ${isOut ? 'msg-out' : 'msg-in'}" data-id="${m.id}">
+    ${m.image ? `<img src="${m.image}" style="max-width:200px;border-radius:8px;display:block;margin-bottom:4px">` : ''}
+    ${m.message ? escapeHtml(m.message) : ''}
+    <div class="msg-time">${formatTime(m.createdAt)}</div>
+  </div>`;
+  container.insertAdjacentHTML('beforeend', html);
+  container.scrollTop = container.scrollHeight;
+  if (!isOut && socket) socket.emit('mark_read', { senderId: m.senderId, receiverId: currentUser.id });
+}
+
+function formatTime(dateStr) {
+  const d = new Date(dateStr + 'Z');
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const opts = { hour: '2-digit', minute: '2-digit' };
+  return sameDay ? d.toLocaleTimeString('ru-RU', opts) : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', ...opts });
+}
+
+function formatDateChat(dateStr) {
+  const d = new Date(dateStr + 'Z');
+  const now = new Date();
+  const diff = (now - d) / 1000;
+  if (diff < 60) return 'только что';
+  if (diff < 3600) return Math.floor(diff / 60) + ' мин. назад';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' ч. назад';
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+}
+
+async function refreshConversations() {
+  try {
+    const container = document.getElementById('chatList');
+    if (!container) return;
+    const convData = await API.get('/api/messages/conversations');
+    const conversations = convData.conversations || [];
+    const activeUserId = document.getElementById('chatMessages')?.dataset?.activeUserId;
+    container.innerHTML = conversations.map(c => {
+      const isActive = String(c.otherUserId) === activeUserId;
+      const isOnline = window._onlineUsers && window._onlineUsers.includes(c.otherUserId);
+      return `<div class="chat-item ${isActive ? 'active' : ''}" data-user-id="${c.otherUserId}" onclick="navigate('/messages?userId=${c.otherUserId}")">
+        <div style="position:relative">
+          <img src="${c.otherUserAvatar || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'}" class="chat-avatar" onerror="this.src='https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'">
+          <span class="online-dot" style="display:${isOnline ? 'inline-block' : 'none'}"></span>
+        </div>
+        <div class="chat-info">
+          <div class="chat-name">${escapeHtml(c.otherUserName)}</div>
+          <div class="chat-preview">${escapeHtml((c.lastMessage || '').substring(0, 50))}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="chat-time">${c.lastMessageTime ? formatDateChat(c.lastMessageTime) : ''}</div>
+          ${c.unreadCount > 0 ? `<span class="chat-unread">${c.unreadCount}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
 async function renderMessages(main, user) {
   if (!user) { renderLogin(main); return; }
   const params = new URLSearchParams(window.location.search);
-  const activeUserId = params.get('userId');
-  const activeProductId = params.get('productId');
+  messagesActiveChatUserId = params.get('userId') ? parseInt(params.get('userId')) : null;
+  messagesActiveProductId = params.get('productId') || null;
+  messagesLastId = 0;
+
   try {
-    const convData = await API.get('/api/messages/conversations');
+    const [convData, onlineData] = await Promise.all([
+      API.get('/api/messages/conversations'),
+      API.get('/api/messages/online')
+    ]);
+    window._onlineUsers = onlineData.online || [];
     const conversations = convData.conversations || [];
     let html = `<h1 class="page-title">Сообщения</h1>
-      <div style="display:grid;grid-template-columns:300px 1fr;gap:20px">`;
-    html += `<div class="card chat-list">`;
+      <div class="chat-layout">
+      <div class="card chat-sidebar">
+        <div style="padding:8px 12px;font-size:13px;color:var(--text-muted);border-bottom:1px solid var(--border)">Диалоги</div>
+        <div class="chat-list" id="chatList">`;
     if (conversations.length === 0) {
       html += '<div class="empty-state" style="padding:20px"><h3>Нет диалогов</h3></div>';
     } else {
       for (const c of conversations) {
-        const isActive = String(c.otherUserId) === activeUserId;
-        html += `<div class="chat-item ${isActive ? 'active' : ''}" onclick="navigate('/messages?userId=${c.otherUserId}')">
-          <img src="${c.otherUserAvatar || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'}" class="chat-avatar" onerror="this.src='https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'">
+        const isActive = String(c.otherUserId) === String(messagesActiveChatUserId);
+        const isOnline = window._onlineUsers.includes(c.otherUserId);
+        html += `<div class="chat-item ${isActive ? 'active' : ''}" data-user-id="${c.otherUserId}" onclick="navigate('/messages?userId=${c.otherUserId}')">
+          <div style="position:relative">
+            <img src="${c.otherUserAvatar || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'}" class="chat-avatar" onerror="this.src='https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'">
+            <span class="online-dot" style="display:${isOnline ? 'inline-block' : 'none'}"></span>
+          </div>
           <div class="chat-info">
             <div class="chat-name">${escapeHtml(c.otherUserName)}</div>
             <div class="chat-preview">${escapeHtml((c.lastMessage || '').substring(0, 50))}</div>
           </div>
-          ${c.unreadCount > 0 ? `<span class="chat-unread">${c.unreadCount}</span>` : ''}
+          <div style="text-align:right">
+            <div class="chat-time">${c.lastMessageTime ? formatDateChat(c.lastMessageTime) : ''}</div>
+            ${c.unreadCount > 0 ? `<span class="chat-unread">${c.unreadCount}</span>` : ''}
+          </div>
         </div>`;
       }
     }
-    html += `</div>`;
-    if (activeUserId) {
-      html += `<div class="card">`;
-      html += `<div class="chat-messages" id="chatMessages"></div>`;
-      html += `<div class="chat-input">
-        <input type="text" id="msgInput" placeholder="Введите сообщение..." onkeydown="if(event.key==='Enter') sendMessage(${activeUserId}, ${activeProductId || 'null'})">
-        <button class="btn btn-primary" onclick="sendMessage(${activeUserId}, ${activeProductId || 'null'})">Отправить</button>
+    html += `</div></div>`;
+
+    if (messagesActiveChatUserId) {
+      const otherUser = conversations.find(c => String(c.otherUserId) === String(messagesActiveChatUserId));
+      html += `<div class="card chat-main">
+        <div class="chat-header">
+          <img src="${otherUser?.otherUserAvatar || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'}" class="chat-avatar" onerror="this.src='https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'">
+          <div>
+            <div class="chat-name">${escapeHtml(otherUser?.otherUserName || 'Пользователь')}</div>
+            <div style="font-size:11px;color:var(--text-muted)" id="chatStatus"></div>
+          </div>
+        </div>
+        <div class="chat-messages" id="chatMessages" data-active-user-id="${messagesActiveChatUserId}">
+          <div class="loading" style="padding:20px">Загрузка сообщений...</div>
+        </div>
+        <div id="typingIndicator" style="display:none;font-size:12px;color:var(--text-muted);padding:4px 16px">печатает...</div>
+        <div class="chat-input">
+          <div class="emoji-btn" onclick="toggleEmojiPicker()">😊</div>
+          <input type="text" id="msgInput" placeholder="Введите сообщение..." autocomplete="off">
+          <label class="attach-btn" title="Прикрепить изображение">📎
+            <input type="file" id="msgImage" accept="image/*" style="display:none">
+          </label>
+          <button class="btn btn-primary" onclick="sendMessage()">Отправить</button>
+        </div>
+        <div id="emojiPicker" style="display:none" class="emoji-picker">
+          ${EMOJIS.map(e => `<span onclick="insertEmoji('${e}')">${e}</span>`).join('')}
+        </div>
+        <div id="imagePreview" style="display:none;padding:8px 16px;border-top:1px solid var(--border)">
+          <img id="previewImg" style="max-height:60px;border-radius:4px">
+          <button class="btn btn-sm btn-danger" onclick="clearImage()">✕</button>
+        </div>
       </div>`;
-      html += `</div>`;
     } else {
-      html += `<div class="card empty-state"><h3>Выберите диалог</h3></div>`;
+      html += `<div class="card chat-main"><div class="empty-state"><h3>Выберите диалог</h3><p>Начните общение с продавцом или покупателем</p></div></div>`;
     }
     html += `</div>`;
     main.innerHTML = html;
-    if (activeUserId) {
-      loadMessages(activeUserId);
-      setInterval(() => loadMessages(activeUserId), 3000);
+    if (messagesActiveChatUserId) {
+      initChatListeners();
+      loadMessages();
     }
   } catch (e) {
     main.innerHTML = `<div class="error-msg" style="display:block">${escapeHtml(e.message)}</div>`;
   }
 }
 
-async function loadMessages(userId) {
+function initChatListeners() {
+  const input = document.getElementById('msgInput');
+  if (!input) return;
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+  input.addEventListener('input', () => {
+    if (socket) {
+      socket.emit('typing', { receiverId: messagesActiveChatUserId });
+      clearTimeout(messagesTypingTimeout);
+      messagesTypingTimeout = setTimeout(() => {
+        if (socket) socket.emit('stop_typing', { receiverId: messagesActiveChatUserId });
+      }, 1500);
+    }
+  });
+  document.getElementById('msgImage')?.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        document.getElementById('previewImg').src = ev.target.result;
+        document.getElementById('imagePreview').style.display = 'flex';
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+  if (window._onlineUsers) {
+    const isOnline = window._onlineUsers.includes(messagesActiveChatUserId);
+    document.getElementById('chatStatus').textContent = isOnline ? '🟢 в сети' : '○ не в сети';
+  }
+}
+
+async function loadMessages() {
+  if (!messagesActiveChatUserId) return;
   try {
-    const data = await API.get(`/api/messages?userId=${userId}`);
+    const data = await API.get(`/api/messages?userId=${messagesActiveChatUserId}${messagesActiveProductId ? '&productId=' + messagesActiveProductId : ''}`);
     const container = document.getElementById('chatMessages');
     if (!container) return;
-    container.innerHTML = data.messages.map(m => `
-      <div class="msg ${m.senderId === currentUser.id ? 'msg-out' : 'msg-in'}">
-        ${escapeHtml(m.message)}
-        <div class="msg-time">${formatDate(m.createdAt)}</div>
-      </div>
-    `).join('');
+    const msgs = data.messages || [];
+    if (msgs.length > 0) messagesLastId = msgs[msgs.length - 1].id;
+    let lastDate = null;
+    container.innerHTML = msgs.map(m => {
+      const isOut = m.senderId === currentUser.id;
+      const msgDate = new Date(m.createdAt + 'Z').toDateString();
+      let dateDiv = '';
+      if (msgDate !== lastDate) { lastDate = msgDate; dateDiv = `<div class="msg-date">${new Date(m.createdAt + 'Z').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</div>`; }
+      return dateDiv + `<div class="msg ${isOut ? 'msg-out' : 'msg-in'}" data-id="${m.id}">
+        ${m.image ? `<img src="${m.image}" style="max-width:200px;border-radius:8px;display:block;margin-bottom:4px">` : ''}
+        ${m.message ? escapeHtml(m.message) : ''}
+        <div class="msg-time">${formatTime(m.createdAt)}</div>
+      </div>`;
+    }).join('');
     container.scrollTop = container.scrollHeight;
+    if (socket) socket.emit('mark_read', { senderId: messagesActiveChatUserId, receiverId: currentUser.id });
+    updateUnreadCount();
+    document.getElementById('typingIndicator').style.display = 'none';
   } catch {}
 }
 
-async function sendMessage(receiverId, productId) {
+async function sendMessage() {
   const input = document.getElementById('msgInput');
-  const text = input.value.trim();
-  if (!text) return;
+  const fileInput = document.getElementById('msgImage');
+  const text = input?.value?.trim() || '';
+  const file = fileInput?.files?.[0];
+  if (!text && !file) return;
   input.value = '';
+  clearImage();
   try {
-    await API.post('/api/messages', { receiverId, message: text, productId });
-    loadMessages(receiverId);
-  } catch (e) {
-    notify(e.message, 'error');
-  }
+    const formData = new FormData();
+    if (text) formData.append('message', text);
+    if (file) formData.append('image', file);
+    formData.append('receiverId', messagesActiveChatUserId);
+    if (messagesActiveProductId) formData.append('productId', messagesActiveProductId);
+    await API.post('/api/messages', formData);
+    fileInput.value = '';
+  } catch (e) { notify(e.message, 'error'); }
+}
+
+function toggleEmojiPicker() {
+  const picker = document.getElementById('emojiPicker');
+  picker.style.display = picker.style.display === 'none' ? 'flex' : 'none';
+}
+
+function insertEmoji(emoji) {
+  const input = document.getElementById('msgInput');
+  input.value += emoji;
+  input.focus();
+  document.getElementById('emojiPicker').style.display = 'none';
+}
+
+function clearImage() {
+  document.getElementById('imagePreview').style.display = 'none';
+  document.getElementById('msgImage').value = '';
 }
 
 // ===================== BALANCE =====================

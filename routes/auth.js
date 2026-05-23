@@ -29,7 +29,8 @@ router.post('/register', (req, res) => {
 });
 
 router.post('/login', passport.authenticate('local'), (req, res) => {
-  const user = db.prepare('SELECT id, email, username, displayName, avatar, role, balance FROM users WHERE id = ?').get(req.user.id);
+  db.prepare('UPDATE users SET lastSeen = datetime(\'now\') WHERE id = ?').run(req.user.id);
+  const user = db.prepare('SELECT id, email, username, displayName, avatar, role, balance, lastSeen FROM users WHERE id = ?').get(req.user.id);
   res.json({ user });
 });
 
@@ -40,7 +41,8 @@ router.get('/logout', (req, res) => {
 });
 
 router.get('/me', isAuthenticated, (req, res) => {
-  const user = db.prepare('SELECT id, email, username, displayName, avatar, role, balance FROM users WHERE id = ?').get(req.user.id);
+  db.prepare('UPDATE users SET lastSeen = datetime(\'now\') WHERE id = ?').run(req.user.id);
+  const user = db.prepare('SELECT id, email, username, displayName, avatar, role, balance, lastSeen FROM users WHERE id = ?').get(req.user.id);
   res.json({ user });
 });
 
