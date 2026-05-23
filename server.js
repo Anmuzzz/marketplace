@@ -52,7 +52,7 @@ app.use('/api/auth/login', authLimiter);
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(session({
-  store: new SQLiteStore({ db: 'sessions.db', dir: path.join(__dirname, 'data') }),
+  store: new SQLiteStore({ db: 'sessions.db', dir: process.env.SESSION_DIR || path.join(__dirname, 'data') }),
   secret: process.env.SESSION_SECRET || 'default_secret',
   resave: false,
   saveUninitialized: false,
