@@ -1,10 +1,19 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const passport = require('passport');
+const multer = require('multer');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 const db = require('../config/db');
 const { isAuthenticated } = require('../middleware/auth');
 
 const router = express.Router();
+
+const storage = multer.diskStorage({
+  destination: path.join(__dirname, '..', 'public', 'uploads'),
+  filename: (req, file, cb) => cb(null, uuidv4() + path.extname(file.originalname))
+});
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.post('/register', (req, res) => {
   const { email, username, password } = req.body;
@@ -38,6 +47,19 @@ router.get('/logout', (req, res) => {
   req.logout(() => {
     res.json({ message: 'Вы вышли из системы' });
   });
+});
+
+router.put('/profile', isAuthenticated, upload.single('avatar'), (req, res) => {
+  const { displayName } = req.body;
+  if (displayName !== undefined) {
+    if (!displayName || !displayName.trim()) return res.status(400).json({ error: 'Имя не может быть пустым' });
+    db.prepare('UPDATE users SET displayName = ?, updatedAt = datetime(\'now\') WHERE id = ?').run(displayName.trim(), req.user.id);
+  }
+  if (req.file) {
+    db.prepare('UPDATE users SET avatar = ?, updatedAt = datetime(\'now\') WHERE id = ?').run('/uploads/' + req.file.filename, req.user.id);
+  }
+  const user = db.prepare('SELECT id, email, username, displayName, avatar, role, balance, lastSeen FROM users WHERE id = ?').get(req.user.id);
+  res.json({ user });
 });
 
 router.get('/me', isAuthenticated, (req, res) => {

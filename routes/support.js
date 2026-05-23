@@ -47,8 +47,11 @@ router.post('/tickets/:id/messages', isAuthenticated, (req, res) => {
   const isAdminUser = req.user.role === 'admin' ? 1 : 0;
   const info = db.prepare('INSERT INTO support_messages (ticketId, userId, message, isAdmin) VALUES (?, ?, ?, ?)')
     .run(req.params.id, req.user.id, message, isAdminUser);
-  db.prepare('UPDATE support_tickets SET updatedAt = datetime(\'now\'), status = CASE WHEN ? = 1 THEN \'resolved\' ELSE \'open\' END WHERE id = ?')
-    .run(isAdminUser, req.params.id);
+  if (!isAdminUser && ticket.status === 'closed') {
+    db.prepare('UPDATE support_tickets SET updatedAt = datetime(\'now\'), status = \'open\' WHERE id = ?').run(req.params.id);
+  } else {
+    db.prepare('UPDATE support_tickets SET updatedAt = datetime(\'now\') WHERE id = ?').run(req.params.id);
+  }
   const msg = db.prepare(`SELECT sm.*, u.displayName as userName, u.avatar as userAvatar
     FROM support_messages sm JOIN users u ON sm.userId = u.id WHERE sm.id = ?`).get(info.lastInsertRowid);
   res.json({ message: msg });

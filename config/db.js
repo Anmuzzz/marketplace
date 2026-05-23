@@ -126,5 +126,6 @@ db.exec(`
 try { db.exec(`ALTER TABLE users ADD COLUMN lastSeen TEXT`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN image TEXT`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN replyToId INTEGER REFERENCES messages(id)`); } catch {}
 
 module.exports = db;

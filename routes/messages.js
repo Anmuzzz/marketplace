@@ -17,14 +17,13 @@ router.get('/conversations', isAuthenticated, (req, res) => {
   const userId = req.user.id;
   const convs = db.prepare(`
     SELECT conv.otherUserId, u.displayName as otherUserName, u.avatar as otherUserAvatar, u.lastSeen,
-      MAX(m.createdAt) as lastMessageTime,
-      (SELECT message FROM messages m2 WHERE ((m2.senderId = ? AND m2.receiverId = conv.otherUserId) OR (m2.senderId = conv.otherUserId AND m2.receiverId = ?)) AND m2.deleted = 0 ORDER BY m2.createdAt DESC LIMIT 1) as lastMessage,
-      (SELECT COUNT(*) FROM messages m3 WHERE m3.receiverId = ? AND m3.senderId = conv.otherUserId AND m3.read = 0 AND m3.deleted = 0) as unreadCount
-    FROM (SELECT CASE WHEN senderId = ? THEN receiverId ELSE senderId END as otherUserId, MAX(createdAt) as maxTime FROM messages WHERE (senderId = ? OR receiverId = ?) AND deleted = 0 GROUP BY otherUserId) conv
+      conv.lastMessageTime,
+      (SELECT message FROM messages WHERE ((senderId = ? AND receiverId = conv.otherUserId) OR (senderId = conv.otherUserId AND receiverId = ?)) AND deleted = 0 ORDER BY createdAt DESC LIMIT 1) as lastMessage,
+      (SELECT COUNT(*) FROM messages WHERE receiverId = ? AND senderId = conv.otherUserId AND read = 0 AND deleted = 0) as unreadCount
+    FROM (SELECT CASE WHEN senderId = ? THEN receiverId ELSE senderId END as otherUserId, MAX(createdAt) as lastMessageTime FROM messages WHERE (senderId = ? OR receiverId = ?) AND deleted = 0 GROUP BY otherUserId) conv
     JOIN users u ON u.id = conv.otherUserId
-    JOIN messages m ON m.createdAt = conv.maxTime AND ((m.senderId = ? AND m.receiverId = conv.otherUserId) OR (m.senderId = conv.otherUserId AND m.receiverId = ?)) AND m.deleted = 0
-    GROUP BY conv.otherUserId ORDER BY lastMessageTime DESC
-  `).all(userId, userId, userId, userId, userId, userId, userId, userId);
+    ORDER BY conv.lastMessageTime DESC
+  `).all(userId, userId, userId, userId, userId, userId);
   res.json({ conversations: convs });
 });
 
@@ -43,6 +42,15 @@ router.get('/', isAuthenticated, (req, res) => {
   if (after) { query += ' AND m.id > ?'; params.push(after); }
   query += ' ORDER BY m.createdAt ASC';
   const messages = db.prepare(query).all(...params);
+  for (const msg of messages) {
+    if (msg.replyToId) {
+      const replied = db.prepare('SELECT id, message, image, senderId FROM messages WHERE id = ?').get(msg.replyToId);
+      if (replied) {
+        const repliedSender = db.prepare('SELECT displayName FROM users WHERE id = ?').get(replied.senderId);
+        msg.replyToMsg = { ...replied, senderName: repliedSender?.displayName };
+      }
+    }
+  }
   db.prepare('UPDATE messages SET read = 1 WHERE receiverId = ? AND senderId = ? AND read = 0').run(req.user.id, userId);
   const io = req.app.get('io');
   if (io) io.to(`user_${userId}`).emit('read_receipt', { senderId: userId, receiverId: req.user.id });
@@ -50,14 +58,26 @@ router.get('/', isAuthenticated, (req, res) => {
 });
 
 router.post('/', isAuthenticated, upload.single('image'), (req, res) => {
-  const { receiverId, message, productId } = req.body;
+  const { receiverId, message, productId, replyTo } = req.body;
   if ((!message || !message.trim()) && !req.file) return res.status(400).json({ error: 'Сообщение или изображение обязательно' });
   if (!receiverId) return res.status(400).json({ error: 'Получатель обязателен' });
   const image = req.file ? '/uploads/' + req.file.filename : null;
-  const info = db.prepare('INSERT INTO messages (senderId, receiverId, productId, message, image) VALUES (?, ?, ?, ?, ?)')
-    .run(req.user.id, parseInt(receiverId), productId || null, (message || '').trim(), image);
+  const replyToId = replyTo ? parseInt(replyTo) : null;
+  if (replyToId) {
+    const exists = db.prepare('SELECT id FROM messages WHERE id = ? AND deleted = 0').get(replyToId);
+    if (!exists) return res.status(400).json({ error: 'Сообщение для ответа не найдено' });
+  }
+  const info = db.prepare('INSERT INTO messages (senderId, receiverId, productId, message, image, replyToId) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(req.user.id, parseInt(receiverId), productId || null, (message || '').trim(), image, replyToId);
   const msg = db.prepare(`SELECT m.*, s.displayName as senderName, s.avatar as senderAvatar 
     FROM messages m JOIN users s ON m.senderId = s.id WHERE m.id = ?`).get(info.lastInsertRowid);
+  if (msg.replyToId) {
+    const replied = db.prepare('SELECT id, message, image, senderId FROM messages WHERE id = ?').get(msg.replyToId);
+    if (replied) {
+      const repliedSender = db.prepare('SELECT displayName FROM users WHERE id = ?').get(replied.senderId);
+      msg.replyToMsg = { ...replied, senderName: repliedSender?.displayName };
+    }
+  }
   const io = req.app.get('io');
   if (io) {
     io.to(`user_${receiverId}`).emit('new_message', msg);

@@ -354,6 +354,7 @@ async function renderProfile(main, user) {
           <div class="profile-balance">${(user.balance || 0).toFixed(2)}$</div>
           <div class="profile-label">Баланс</div>
           <div style="margin-top:12px"><a href="/balance" class="btn btn-primary btn-sm" onclick="return navigate('/balance')">Управление балансом</a></div>
+          <div style="margin-top:8px"><button class="btn btn-outline btn-sm" onclick="showEditProfile()">✏️ Редактировать профиль</button></div>
           ${user.role === 'admin' ? `<div style="margin-top:8px"><button class="btn btn-outline btn-sm" onclick="toggleAdmin()">⚙️ Админ-панель</button></div>` : ''}
         </div>
         <div>
@@ -462,11 +463,56 @@ async function adminDeposit(userId) {
   }
 }
 
+function showEditProfile() {
+  const existing = document.getElementById('editProfileModal');
+  if (existing) { existing.remove(); return; }
+  const modal = document.createElement('div');
+  modal.id = 'editProfileModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `<div class="card" style="width:90%;max-width:400px;margin:0">
+    <h3 style="margin-bottom:16px">Редактировать профиль</h3>
+    <div class="form-group"><label>Имя</label><input type="text" id="editDisplayName" value="${escapeHtml(currentUser.displayName || '')}"></div>
+    <div class="form-group"><label>Аватар</label><input type="file" id="editAvatar" accept="image/*"></div>
+    <div id="editAvatarPreview" style="display:none;margin-bottom:12px"><img id="editAvatarImg" style="max-width:100px;max-height:100px;border-radius:50%"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="saveProfile()">Сохранить</button>
+      <button class="btn btn-outline" onclick="document.getElementById('editProfileModal').remove()">Отмена</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('editAvatar')?.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => { document.getElementById('editAvatarImg').src = ev.target.result; document.getElementById('editAvatarPreview').style.display = 'block'; };
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
+async function saveProfile() {
+  const displayName = document.getElementById('editDisplayName').value.trim();
+  const avatarFile = document.getElementById('editAvatar').files[0];
+  if (!displayName) { notify('Имя не может быть пустым', 'error'); return; }
+  try {
+    const formData = new FormData();
+    formData.append('displayName', displayName);
+    if (avatarFile) formData.append('avatar', avatarFile);
+    const data = await API.put('/api/auth/profile', formData);
+    currentUser = data.user;
+    updateHeader(currentUser);
+    notify('Профиль сохранён');
+    document.getElementById('editProfileModal')?.remove();
+    navigate('/profile');
+  } catch (e) { notify(e.message, 'error'); }
+}
+
 // ===================== MESSAGES =====================
 let messagesActiveChatUserId = null;
 let messagesActiveProductId = null;
 let messagesTypingTimeout = null;
 let messagesLastId = 0;
+let messagesReplyTo = null;
 
 const EMOJIS = ['😀','😂','😍','🥰','😎','🤔','👍','❤️','🔥','🎉','💯','😢','😡','👋','🎁','💰','🚀','💪','🙏','⭐','✅','❌','💡','📦','🛒','🔒','🔓','📱','💻','⌚','🎧'];
 
@@ -510,14 +556,39 @@ function appendMessage(m) {
   const container = document.getElementById('chatMessages');
   if (!container) return;
   const isOut = m.senderId === currentUser.id;
+  const replyHtml = m.replyToMsg ? `<div class="msg-reply">
+    <div class="msg-reply-name">${escapeHtml(m.replyToMsg.senderName)}</div>
+    <div class="msg-reply-text">${escapeHtml(m.replyToMsg.message || '')}${m.replyToMsg.image ? ' 📷' : ''}</div>
+  </div>` : '';
   const html = `<div class="msg ${isOut ? 'msg-out' : 'msg-in'}" data-id="${m.id}">
+    ${replyHtml}
     ${m.image ? `<img src="${m.image}" style="max-width:200px;border-radius:8px;display:block;margin-bottom:4px">` : ''}
     ${m.message ? escapeHtml(m.message) : ''}
     <div class="msg-time">${formatTime(m.createdAt)}</div>
+    <div class="msg-actions"><button class="msg-reply-btn" data-reply-id="${m.id}" data-reply-name="${escapeHtml(m.senderName)}">↩</button></div>
   </div>`;
   container.insertAdjacentHTML('beforeend', html);
   container.scrollTop = container.scrollHeight;
   if (!isOut && socket) socket.emit('mark_read', { senderId: m.senderId, receiverId: currentUser.id });
+}
+
+function setReplyTo(msgId, senderName) {
+  messagesReplyTo = msgId;
+  const bar = document.getElementById('replyPreview');
+  if (bar) {
+    bar.style.display = 'flex';
+    bar.querySelector('.reply-preview-name').textContent = 'Ответ ' + senderName;
+    const msgEl = document.querySelector(`[data-id="${msgId}"]`);
+    const textEl = msgEl?.querySelector('.msg-time')?.previousSibling;
+    bar.querySelector('.reply-preview-text').textContent = textEl?.textContent?.trim()?.substring(0, 80) || '';
+  }
+  document.getElementById('msgInput')?.focus();
+}
+
+function cancelReply() {
+  messagesReplyTo = null;
+  const bar = document.getElementById('replyPreview');
+  if (bar) bar.style.display = 'none';
 }
 
 function formatTime(dateStr) {
@@ -623,6 +694,10 @@ async function renderMessages(main, user) {
           <div class="loading" style="padding:20px">Загрузка сообщений...</div>
         </div>
         <div id="typingIndicator" style="display:none;font-size:12px;color:var(--text-muted);padding:4px 16px">печатает...</div>
+        <div id="replyPreview" style="display:none;align-items:center;gap:8px;padding:8px 16px;border-top:1px solid var(--border);background:var(--tab-bg);font-size:13px">
+          <div style="flex:1"><span class="reply-preview-name" style="font-weight:600;font-size:12px;color:var(--primary)"></span><br><span class="reply-preview-text" style="color:var(--text-muted);font-size:12px"></span></div>
+          <button class="btn btn-sm btn-danger" onclick="cancelReply()">✕</button>
+        </div>
         <div class="chat-input">
           <div class="emoji-btn" onclick="toggleEmojiPicker()">😊</div>
           <input type="text" id="msgInput" placeholder="Введите сообщение..." autocomplete="off">
@@ -668,6 +743,10 @@ function initChatListeners() {
       }, 1500);
     }
   });
+  document.getElementById('chatMessages')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.msg-reply-btn');
+    if (btn) setReplyTo(parseInt(btn.dataset.replyId), btn.dataset.replyName);
+  });
   document.getElementById('msgImage')?.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -699,10 +778,16 @@ async function loadMessages() {
       const msgDate = new Date(m.createdAt + 'Z').toDateString();
       let dateDiv = '';
       if (msgDate !== lastDate) { lastDate = msgDate; dateDiv = `<div class="msg-date">${new Date(m.createdAt + 'Z').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</div>`; }
+      const replyHtml = m.replyToMsg ? `<div class="msg-reply">
+        <div class="msg-reply-name">${escapeHtml(m.replyToMsg.senderName)}</div>
+        <div class="msg-reply-text">${escapeHtml(m.replyToMsg.message || '')}${m.replyToMsg.image ? ' 📷' : ''}</div>
+      </div>` : '';
       return dateDiv + `<div class="msg ${isOut ? 'msg-out' : 'msg-in'}" data-id="${m.id}">
+        ${replyHtml}
         ${m.image ? `<img src="${m.image}" style="max-width:200px;border-radius:8px;display:block;margin-bottom:4px">` : ''}
         ${m.message ? escapeHtml(m.message) : ''}
         <div class="msg-time">${formatTime(m.createdAt)}</div>
+        <div class="msg-actions"><button class="msg-reply-btn" data-reply-id="${m.id}" data-reply-name="${escapeHtml(m.senderName)}">↩</button></div>
       </div>`;
     }).join('');
     container.scrollTop = container.scrollHeight;
@@ -726,7 +811,9 @@ async function sendMessage() {
     if (file) formData.append('image', file);
     formData.append('receiverId', messagesActiveChatUserId);
     if (messagesActiveProductId) formData.append('productId', messagesActiveProductId);
+    if (messagesReplyTo) formData.append('replyTo', messagesReplyTo);
     await API.post('/api/messages', formData);
+    cancelReply();
     fileInput.value = '';
   } catch (e) { notify(e.message, 'error'); }
 }
@@ -890,6 +977,17 @@ async function renderSupportTicket(main, user, ticketId) {
             </div>
           `).join('')}
         </div>
+        ${user.role === 'admin' && !isClosed ? `
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn btn-sm btn-outline" onclick="changeTicketStatus(${ticketId},'closed')">🔒 Закрыть тикет</button>
+            ${ticket.status !== 'resolved' ? `<button class="btn btn-sm btn-success" onclick="changeTicketStatus(${ticketId},'resolved')">✅ Решено</button>` : ''}
+          </div>
+        ` : ''}
+        ${user.role === 'admin' && isClosed ? `
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn btn-sm btn-outline" onclick="changeTicketStatus(${ticketId},'open')">↩ Открыть снова</button>
+          </div>
+        ` : ''}
         ${!isClosed ? `
           <div class="chat-input">
             <input type="text" id="ticketReply" placeholder="Введите ответ..." onkeydown="if(event.key==='Enter') replyTicket(${ticketId})">
@@ -909,6 +1007,14 @@ async function replyTicket(ticketId) {
   input.value = '';
   try {
     await API.post(`/api/support/tickets/${ticketId}/messages`, { message: text });
+    navigate(`/support?ticket=${ticketId}`);
+  } catch (e) { notify(e.message, 'error'); }
+}
+
+async function changeTicketStatus(ticketId, status) {
+  try {
+    await API.put(`/api/support/tickets/${ticketId}/status`, { status });
+    notify('Статус тикета изменён');
     navigate(`/support?ticket=${ticketId}`);
   } catch (e) { notify(e.message, 'error'); }
 }
