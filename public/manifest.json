@@ -1,0 +1,13 @@
+{
+  "name": "Marketplace",
+  "short_name": "Market",
+  "description": "Маркетплейс с криптовалютной поддержкой",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f5",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml" },
+    { "src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml" }
+  ]
+}

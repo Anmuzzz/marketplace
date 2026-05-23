@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="description" content="Маркетплейс с криптовалютной поддержкой">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <title>Marketplace</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="container header-inner">
+      <a href="/" class="logo" onclick="return navigate('/')">Marketplace</a>
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Поиск товаров..." onkeydown="if(event.key==='Enter') navigate('/catalog?search='+encodeURIComponent(this.value))">
+        <button onclick="navigate('/catalog?search='+encodeURIComponent(document.getElementById('searchInput').value))">🔍</button>
+      </div>
+      <nav class="nav" id="mainNav">
+        <a href="/catalog" onclick="return navigate('/catalog')">Каталог</a>
+        <span id="authLinks">
+          <a href="/login" onclick="return navigate('/login')">Войти</a>
+          <a href="/register" onclick="return navigate('/register')">Регистрация</a>
+        </span>
+        <span id="userMenu" style="display:none">
+          <a href="/profile" onclick="return navigate('/profile')">Личный кабинет</a>
+          <a href="/messages" onclick="return navigate('/messages')">Сообщения</a>
+          <a href="/balance" onclick="return navigate('/balance')">💰 <span id="headerBalance">0.00</span>$</a>
+          <a href="/support" onclick="return navigate('/support')">Поддержка</a>
+          <a href="#" onclick="return logout()">Выйти</a>
+        </span>
+        <button id="themeToggle" onclick="toggleTheme()" style="background:none;border:none;cursor:pointer;font-size:18px;padding:4px" title="Сменить тему">🌙</button>
+      </nav>
+    </div>
+  </header>
+  <main class="container" id="mainContent">
+    <div class="loading">Загрузка...</div>
+  </main>
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
