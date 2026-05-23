@@ -48,4 +48,31 @@ router.get('/admin/users', isAdmin, (req, res) => {
   res.json({ users });
 });
 
+router.get('/backup', isAdmin, (req, res) => {
+  const path = require('path');
+  const fs = require('fs');
+  const backupPath = path.join(__dirname, '..', 'data', 'backup.db');
+  db.backup(backupPath);
+  res.download(backupPath, `marketplace-backup-${Date.now()}.db`, (err) => {
+    if (err) console.error('Backup download error:', err.message);
+    try { fs.unlinkSync(backupPath); } catch {}
+  });
+});
+
+router.get('/export', isAdmin, (req, res) => {
+  const dump = {
+    exportedAt: new Date().toISOString(),
+    users: db.prepare('SELECT * FROM users').all(),
+    products: db.prepare('SELECT * FROM products').all(),
+    orders: db.prepare('SELECT * FROM orders').all(),
+    messages: db.prepare('SELECT * FROM messages').all(),
+    transactions: db.prepare('SELECT * FROM transactions').all(),
+    support_tickets: db.prepare('SELECT * FROM support_tickets').all(),
+    support_messages: db.prepare('SELECT * FROM support_messages').all(),
+    reviews: db.prepare('SELECT * FROM reviews').all(),
+    wishlist: db.prepare('SELECT * FROM wishlist').all(),
+  };
+  res.json(dump);
+});
+
 module.exports = router;
