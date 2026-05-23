@@ -44,13 +44,13 @@ app.use((req, res, next) => {
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 5000,
   message: { error: 'Слишком много запросов, попробуйте позже' }
 });
 app.use('/api/', limiter);
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 200,
   message: { error: 'Слишком много попыток входа, попробуйте позже' }
 });
 app.use('/api/auth/login', authLimiter);
