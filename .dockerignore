@@ -1,0 +1,8 @@
+node_modules/
+logs/
+.git/
+*.md
+.gitignore
+render.yaml
+ecosystem.config.js
+keep-alive.sh
