@@ -120,6 +120,7 @@ main { padding: 30px 20px; }
 .emoji-picker span { font-size: 22px; cursor: pointer; padding: 2px; border-radius: 4px; transition: background .2s; }
 .emoji-picker span:hover { background: var(--hover-bg); }
 #imagePreview { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--border); }
+#ticketReply, #ticketReply:focus { background: var(--bg-card); color: var(--text); border: 2px solid var(--border); }
 
 .ticket-card { padding: 16px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px; cursor: pointer; transition: border .2s; }
 .ticket-card:hover { border-color: var(--primary); }
@@ -130,6 +131,14 @@ main { padding: 30px 20px; }
 .ticket-status.closed { background: var(--border); color: var(--text-secondary); }
 
 .product-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+.product-detail .btn + .btn { margin-left: 8px; }
+
+.btn + .btn, .btn + .btn-outline, .btn-outline + .btn { margin-left: 8px; }
+.card .btn + .btn { margin-left: 8px; }
+.form-row .btn { margin-top: 0; }
+.profile-sidebar .btn + .btn { margin-left: 0; margin-top: 8px; }
+.admin-user-row .btn { margin-left: 8px; }
+#imagePreview .btn { margin-left: 8px; }
 .product-detail img { width: 100%; border-radius: 12px; max-height: 400px; object-fit: cover; }
 .product-detail h1 { font-size: 28px; margin-bottom: 12px; }
 .product-detail .price-large { font-size: 36px; font-weight: 700; color: var(--primary); margin-bottom: 12px; }

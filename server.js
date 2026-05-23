@@ -119,16 +119,52 @@ io.on('connection', (socket) => {
 app.set('io', io);
 app.set('onlineUsers', onlineUsers);
 
+function seedData() {
+  const bcrypt = require('bcryptjs');
+  const demoUsers = [
+    { email: 'admin@marketplace.com', username: 'admin', password: 'admin123', displayName: 'Admin', role: 'admin', balance: 10000 },
+    { email: 'demo@marketplace.com', username: 'demo', password: 'demo123', displayName: 'Demo User', role: 'user', balance: 5000 },
+    { email: 'seller@marketplace.com', username: 'seller', password: 'seller123', displayName: 'Продавец', role: 'user', balance: 2500 }
+  ];
+  for (const u of demoUsers) {
+    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(u.email);
+    if (!existing) {
+      const info = db.prepare('INSERT INTO users (email, username, password, displayName, role, balance) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(u.email, u.username, bcrypt.hashSync(u.password, 10), u.displayName, u.role, u.balance);
+      if (u.balance > 0) {
+        db.prepare('INSERT INTO transactions (userId, type, amount, details) VALUES (?, \'deposit\', ?, ?)')
+          .run(info.lastInsertRowid, u.balance, 'Приветственный бонус');
+      }
+      logger.info(`Создан ${u.role}: ${u.email} / ${u.password}`);
+    }
+  }
+  const demoProducts = [
+    { sellerEmail: 'seller@marketplace.com', title: 'iPhone 15 Pro Max', description: 'Новый iPhone 15 Pro Max, 256GB, глубокий синий. В идеальном состоянии, полный комплект.', price: 1199.99, category: 'electronics' },
+    { sellerEmail: 'seller@marketplace.com', title: 'MacBook Air M3', description: 'MacBook Air на M3, 16GB RAM, 512GB SSD. Цвет midnight. Гарантия до 2027.', price: 1499.99, category: 'electronics' },
+    { sellerEmail: 'seller@marketplace.com', title: 'AirPods Pro 2', description: 'AirPods Pro 2-го поколения с USB-C. Оригинал, запечатан.', price: 249.99, category: 'electronics' },
+    { sellerEmail: 'demo@marketplace.com', title: 'PS5 Slim Digital', description: 'PlayStation 5 Slim Digital Edition. В наличии, новый.', price: 499.99, category: 'electronics' },
+    { sellerEmail: 'demo@marketplace.com', title: 'Наушники Sony WH-1000XM5', description: 'Топовые беспроводные наушники с шумоподавлением. Черные.', price: 349.99, category: 'electronics' },
+    { sellerEmail: 'demo@marketplace.com', title: 'Куртка кожаная', description: 'Натуральная кожа, размер M, новая с бирками.', price: 189.99, category: 'clothing' }
+  ];
+  const sellerIds = {};
+  for (const u of demoUsers) {
+    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(u.email);
+    if (user) sellerIds[u.email] = user.id;
+  }
+  for (const p of demoProducts) {
+    const existing = db.prepare('SELECT id FROM products WHERE title = ? AND sellerId = ?').get(p.title, sellerIds[p.sellerEmail]);
+    if (!existing && sellerIds[p.sellerEmail]) {
+      db.prepare('INSERT INTO products (sellerId, title, description, price, category) VALUES (?, ?, ?, ?, ?)')
+        .run(sellerIds[p.sellerEmail], p.title, p.description, p.price, p.category);
+      logger.info(`Создан товар: ${p.title}`);
+    }
+  }
+}
+
 server.listen(PORT, () => {
   logger.info(`Marketplace запущен на http://localhost:${PORT}`);
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@marketplace.com';
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(adminEmail);
-  if (!existing) {
-    const bcrypt = require('bcryptjs');
-    db.prepare('INSERT INTO users (email, username, password, displayName, role) VALUES (?, ?, ?, ?, ?)')
-      .run(adminEmail, 'admin', bcrypt.hashSync('admin123', 10), 'Admin', 'admin');
-    logger.info(`Создан admin: ${adminEmail} / admin123`);
-  }
+  seedData();
+  logger.info('Сид-данные проверены');
 });
 
 process.on('unhandledRejection', (err) => logger.error('Unhandled rejection:', err.message));

@@ -42,6 +42,7 @@ function initSocket() {
   socket.on('new_message', (msg) => {
     if (window.onNewMessage) window.onNewMessage(msg);
     updateUnreadCount();
+    if (document.hidden) playNotification();
   });
   socket.on('message_sent', (msg) => {
     if (window.onMessageSent) window.onMessageSent(msg);
@@ -68,6 +69,21 @@ async function updateUnreadCount() {
       if (data.unread > 0) { badge.textContent = data.unread > 99 ? '99+' : data.unread; badge.style.display = 'inline'; }
       else badge.style.display = 'none';
     }
+  } catch {}
+}
+
+function playNotification() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 800;
+    gain.gain.value = 0.1;
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+    setTimeout(() => { osc.frequency.value = 1000; }, 50);
   } catch {}
 }
 
